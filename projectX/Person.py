@@ -1,5 +1,7 @@
 #coding=utf-8
+
 #以下定义了地址类
+import base64
 class home(object):
 	"""docstring for home"""
 	def __init__(self, country='china',province='beijing',city='beijing',road='xueyuanlu'):
@@ -51,11 +53,11 @@ class date(object):
 #		home
 #		relationship			
 class Person(object):
-	"""docstring for Person"""
+	#初始化
 	def __init__(self, name="NULL",age=0,phone="00000000000",relationship="NULL"):
 		self.name=name
 		self.age=age
-		self.birthday=date(0,0,0),
+		self.birthday=date(),
 		self.home=home()
 		self.phone=phone
 		self.relationship=relationship
@@ -71,12 +73,38 @@ class Person(object):
 		return self.phone
 	def getrelationship(self):
 		return self.relationship
+	def setname(self,n):
+		self.name=n
+	def setage(self,n):
+		self.age=n
+	def setphone(self,n):
+		self.phone=n
+	def setrelationship(self,n):
+		self.relationship=n
+	def setbirthday(self,y,m,d):
+		self.birthday.year=y
+		self.birthday.month=m
+		self.birthday.day=d
+	def sethome(self,c,p,ci,r):
+		self.home.country=c
+		self.home.province=p
+		self.home.city=ci
+		self.home.road=r
+	
 	
 
 
 if __name__ == '__main__':
 	xiaoming=Person('xiaoming')
+	xiaoming.sethome('China','shandong','jinan','yanghu')
 	print (xiaoming.gethome().province)
+	import pickle
+	fp=open('people.dat','wb')
+	pickle.dump(xiaoming,fp)
+	fp.close()
+	fp=open('people.dat','rb')
+	e=pickle.load(fp)
+	print(e.getname())
 
 
 		
