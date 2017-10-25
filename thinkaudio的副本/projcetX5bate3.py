@@ -115,7 +115,7 @@ import json
 import base64
 import time
 import pygame
-import sys
+
 VOLUME_GROUP_LEN = 20 #这是语音数组的长度，越大则变化越慢，环境变量越精准
 
 MAX_VOLUME = 1000#这里定义了系统分别人声和环境声音的一个阈值，比这个大的就被认为一定是人声，不会被加入到表中
@@ -126,41 +126,28 @@ ISOTIMEFORMAT='%a, %d %b %Y %H:%M:%S  '#定义了一种时间样式
 
 CALCULATE_TIMES = 1.3#定义了对于基础音量和帕普庵定义·判断音量的比例
 #以下定义了很多的全局变量，在程序里修改调用的时候需要加上global 2017/10/22
+api_key = "jbY9qOIuiZTqf5ZHrylhGINq"
 
+api_secert = "9a70d2e561411592aa8bef22f259791e"
 
 exit_flag = 0 #这个是用于系统（前台和后台）统一退出的变量
 
-last_flag = 0 #用于引导程序将最后一秒也加上
+last_flag = 0
 
 volume = [] #定义了volume数组
 
-s_average = 0 #average两个是代表了临时的环境音和系统运算出来的环境音
+s_average = 0 
 
 average = 0
+
+wait_time = 0
 
 kill_flag = 0 #这个 kill_flag 和 bonus_flag  用于胰岛素算法
 
 bonus_flag = 0
 
-record_key = False #这个用于遥控主程序的录音开始
-
 #以下是第一种环境音量调节的方法，平均数组法
 
-
-
-"""下面这两个封装代码用于杀死播放程序"""
-def get_Pid(process_name):#这段代码可以获取进程的pid码
-    cmd = "ps -C %s | grep -v CMD |awk '{ print $1 }'"%(process_name)
-    print(cmd)
-    pid = os.popen(cmd).read()
-    return pid
-def kill_arecord():
-    os.system("sudo kill -9 %s"%(get_Pid('arecord')))
-
-
-
-
-"""动态调节的后台环境数组"""
 def add_static_volume(a = 0):
     global s_average
     global average
@@ -179,13 +166,116 @@ def add_static_volume(a = 0):
     else:
         return 1
 
-"""预处理文件，作为最开始的初始化代码程序"""
-def pretreatment():
-	wait_time = 0
-    
-    reset_file()
 
-    print("下面开启后台检测程序")
+#以下是并行运算程序，在后台运行，负责时时计算现在的音量和背景音量
+def ultracode():
+    #以下是循环代码
+
+    global kill_flag
+    global bonus_flag
+    global exit_flag 
+    global s_average
+    global average
+    global wait_time
+    s_average = add_static_volume()
+    if(os.path.exists('handshake.wav')==True):
+        f = wave.open("handshake.wav", "rb")
+
+        # 读取格式信息#(nchannels, sampwidth, framerate, nframes, comptype, compname)
+        params = f.getparams()
+        nchannels, sampwidth, framerate, nframes = params[:4]
+        str_data = f.readframes(nframes)
+        wave_data = np.fromstring(str_data, dtype=np.short)
+        wave_data.shape = -1, 2
+        wave_data = wave_data.T
+        # 计算平均数
+        sum = 0
+        b = len(wave_data[0])
+        for i in range(b):
+            sum = sum + abs(wave_data[0][i])
+        average = sum / b
+        print("结果：",average)
+        f.close()
+        os.system("rm -f handshake.wav")
+
+
+    if(os.path.exists('d:/assist')==True):
+    #首先判断是不是有这个文件，在做任务，然后我们知道我们算法里面如果没
+    #人说话，最新录制的语音会只出现在in0.wav中，所以我们只需要用in0，判断。
+    #以下我们运算的是读取文件的平均数
+    #经过测试无效被弃用
+        f = wave.open("in1.wav", "rb")
+
+        # 读取格式信息#(nchannels, sampwidth, framerate, nframes, comptype, compname)
+        params = f.getparams()
+        nchannels, sampwidth, framerate, nframes = params[:4]
+        str_data = f.readframes(nframes)
+        wave_data = np.fromstring(str_data, dtype=np.short)
+        wave_data.shape = -1, 2
+        wave_data = wave_data.T
+        # 计算平均数
+        sum = 0
+        b = len(wave_data[0])
+        for i in range(b):
+            sum = sum + abs(wave_data[0][i])
+        average = sum / b
+        print("结果：",average)
+        f.close()
+
+    #如果没有听到了人声，也就是人没有说话，我才会加进去，这是一种保险，但是一般用不到，因为只会读取in0.wav
+    if(average < s_average * CALCULATE_TIMES and average <s_average + 50 ):
+        s_average = add_static_volume(average)
+
+ 
+    #以下是胰岛素算法,如果6次都大（小）就给一次胰岛素
+    #这是第二种调节方法也就是比例放大缩小
+    if(average < s_average):
+        kill_flag = kill_flag + 1
+        bonus_flag = 0
+        if(kill_flag == 5):
+            for i in range(1,len(volume)):
+                volume[i] = volume[i] * 0.9
+            kill_flag = 0
+
+
+    if(average > s_average):
+        bonus_flag = bonus_flag + 1
+        kill_flag = 0
+        if(bonus_flag == 5):
+            for i in range(1,len(volume)):
+                volume[i] = volume[i] * 1.5
+            bonus_flag = 0
+    if(exit_flag == 1):
+        exit(-1)
+
+    #循环代码结束
+    t = Timer(0.6,ultracode)
+    t.start()
+
+def reset_file():
+    
+    os.system("rm -f conbine.wav")
+    os.system("rm -f last.wav")
+    os.system("rm -f now_last.wav")
+    os.system("rm -f handshake.wav")
+    for s in range(0,100):
+        os.system("rm -f in%d.wav"%s)
+
+
+
+def add_all_inwav(n):
+    node_string=' '
+    main_string = []
+    for i in range(n):
+        main_string.append('in%d.wav'%(i))
+
+    return node_string.join( main_string )
+
+
+def pretreatment():
+    wait_time = 0
+    FAVERAGE = 0
+    reset_file()
 
     while(True):
         
@@ -194,7 +284,7 @@ def pretreatment():
         #print(time.strftime(ISOTIMEFORMAT,time.localtime()),"请说话吧")
         #下面是录音，录一秒
         
-        os.system("sudo arecord -D 'plughw:2,0' -r16000 -f S16_LE -d 1 in%d.wav"%(wait_time))
+        os.system("sudo arecord -D 'plughw:1,0' -r16000 -f S16_LE -d 1 in%d.wav"%(wait_time))
 
         
 
@@ -231,119 +321,11 @@ def pretreatment():
             print("测试音量成功")
             print("静音声音是：",FAVERAGE,"超过的视为说话")
             f.close()
-         
+            return FAVERAGE
 
 
-   
-"""唯一的字程序"""
-def ultracode():
-    #以下是循环代码
-
-    global kill_flag
-    global bonus_flag
-    global exit_flag 
-    global s_average
-    global average
-    
-    print("循环一次录音代码")
-    s_average = add_static_volume()
-    
-    #读取一秒钟的信息
-    os.system("sudo arecord -D 'plughw:1,0' -r16000 -f S16_LE  -d 1 in0.wav")
-
-    #计算语音强度average
-
-    f = wave.open("in0.wav", "rb")
-    # 读取格式信息#(nchannels, sampwidth, framerate, nframes, comptype, compname)
-    params = f.getparams()
-    nchannels, sampwidth, framerate, nframes = params[:4]
-    str_data = f.readframes(nframes)
-    wave_data = np.fromstring(str_data, dtype=np.short)
-    wave_data.shape = -1, 2
-    wave_data = wave_data.T
-    # 计算平均数
-    sum = 0
-    b = len(wave_data[0])
-    for i in range(b):
-        sum = sum + abs(wave_data[0][i])
-    average = sum / b
-    hand_average =average
-    f.close()
-    #如果没有听到了人声，也就是人没有说话，我才会加进去，这是一种保险，但是一般用不到，因为只会读取in0.wav
-    if(average < s_average * CALCULATE_TIMES and average <s_average + 50 ):
-        s_average = add_static_volume(average)
-    else:
-    	add_static_volume(s_average)#如果有人声，也加自身保证动态
-
-    #以下是胰岛素算法,如果4次都大（小）就给一次胰岛素
-    #这是第二种调节方法也就是比例放大缩小
-    if(average < s_average):
-        kill_flag = kill_flag + 1
-        bonus_flag = 0
-        if(kill_flag == 3):
-            for i in range(1,len(volume)):
-                volume[i] = volume[i] * 0.9
-            kill_flag = 0
-
-
-    if(average > s_average):
-        bonus_flag = bonus_flag + 1
-        kill_flag = 0
-        if(bonus_flag == 3):
-            for i in range(1,len(volume)):
-                volume[i] = volume[i] * 1.5
-            bonus_flag = 0
-
-    #如果我们听到了人声，那么我们做个标记
-    if(hand_average >= s_average * CALCULATE_TIMES and  hand_average >= s_average + 50):
-    	record_flag = True
-    	go_times = go_times + 1
-    #如果我们发现没有人声了，然后判断record_flag的值，如果是在录音，咱们给他断了，如果没在录音，就不管他了。
-    if((hand_average < s_average * CALCULATE_TIMES or  hand_average < s_average + 50) and record_flag == True):
-    	kill_arecord()
-    	record_key = False
-    	#切割出 从后往前 go_times+3 秒的 wav文件： conbine.wav
-
-    	os.system("sudo sox in007.wav conbine.wav trim 0 10")
-    	s = bdr.getText('conbine.wav')
-
-    	print("我：",s)
-
-    	record_key = True
-
-
-    print("现在的背景音量：",hand_average,"现在的背景音数组:",s_average,"这一次后台计算结束了")
-    t = Timer(0.1,ultracode)
-    t.start()
-    
-
-"""重新规划删除无用文件"""
-def reset_file():
-    
-    os.system("rm -f conbine.wav")
-    os.system("rm -f last.wav")
-    os.system("rm -f now_last.wav")
-    os.system("rm -f handshake.wav")
-    for s in range(0,100):
-        os.system("rm -f in%d.wav"%s)
-
-
-
-"""
-def add_all_inwav(n):
-    node_string=' '
-    main_string = []
-    for i in range(n):
-        main_string.append('in%d.wav'%(i))
-
-    return node_string.join( main_string )
-"""
-
-
-
-"""
 def send_to_robot(s):
-    
+    """图灵机器人"""
     print("请求聊天机器人")
     dic_json = requests.post("http://www.tuling123.com/openapi/api",data={
             "key":"4ee7c2cbfa9749409974ef2aed72bbfc",
@@ -355,9 +337,7 @@ def send_to_robot(s):
     print("机器人：",dic_json['text']) 
 
     return dic_json['text']
-"""
 
-"""用于播放的代码"""
 def music_play(file = 'out.mp3'):
     #以下是音乐播放
     print("播放音乐out.mp3")
@@ -382,9 +362,9 @@ def music_play(file = 'out.mp3'):
 
     print("此次播放完成")
 
-"""百度识别API"""
+
 class BaiduRest:
-    def __init__(self, cu_id, api_key = "jbY9qOIuiZTqf5ZHrylhGINq", api_secert = '9a70d2e561411592aa8bef22f259791e'):
+    def __init__(self, cu_id, api_key, api_secert):
         
         self.token_url = "https://openapi.baidu.com/oauth/2.0/token?grant_type=client_credentials&client_id=%s&client_secret=%s"
         
@@ -435,43 +415,38 @@ class BaiduRest:
         r_data = urllib.request.urlopen(self.upvoice_url,data=bytes(post_data,encoding="utf-8")).read().decode("utf8")
         print("返回成功")
         print(json.loads(r_data)['err_msg'])
-
         if(json.loads(r_data)['err_msg'] == 'speech quality error.'):
             #这里是没听到人声的处理方法，如果及其嘈杂的环境，则会让volume所有的都增加20的数值，直到不出现这种情况，
             #假如出现误判，那么也会在add_static_volume中被矫正，这段代码是用于及其特殊的情况的，比如狗叫、猫叫，在以后的一段时间屏蔽
             for i in range(1,len(volume)):
                 volume[i] = volume[i] + VOLUME_GAP
             return "error001"
-        
-        if(not json.loads(r_data)['err_msg'] == 'success.' and not json.loads(r_data)['err_msg'] == 'speech quality error.'):
-            return 'error_unknown.'
         res=json.loads(r_data)['result'][0]
         return res 
 
-bdr = BaiduRest("test_python")
 
+ 
 if __name__ == '__main__':
     print('系统加载成功')
     global exit_flag
     global s_average 
     global average
-    global record_key
 
-    pretreatment()
-
+    print("下面开启后台检测程序")
     ultracode()
-
-    
-
-   # judgement()
     print("获取成功")
     """获取百度的token"""
-    bdr = BaiduRest("test_python")
+    bdr = BaiduRest("test_python", api_key, api_secert)
 
-    
+
+
+    wait_time = 0#wait_time 是我们等待的次数
+
+    print("测试时间5秒, 请耐心等待")
+
     #以下是预处理方法
 
-    #pretreatment()
+    pretreatment()
 
 
     """
@@ -479,23 +454,94 @@ if __name__ == '__main__':
     以下是主程序部分，如果想退出那就喊出退出或者关闭，这样可以解决音频设备busy的bug
 
     """
+    lastwav_exist_flag = False#first_flag 表示有没有last。wav的存在
     
-    
+    while True:
+
+        #第一层循环是一句话一句话的循环，每一次循环会产生一句话
+        wait_time = 0
+        
+        while(True):
+            
+            # 第二层循环是抓取音频并在退出的时候产生一个combine.wav 的合成音频文件
+
+            #suprint(time.strftime(ISOTIMEFORMAT,time.localtime()),"请说话吧")
+
+            #下面是录音，录一秒
+
+            os.system("sudo arecord -D 'plughw:1,0' -r16000 -f S16_LE -d 1 in%d.wav"%(wait_time))
+            #对于这一秒信息计算求平均数，
+            if(os.path.exists('handshake.wav')==False):
+                os.system("cp in%d.wav handshake.wav"%(wait_time))
+            
+            print("现在音量：",average,"现在后台算出的环境音量是",s_average)
+
+            wait_time = wait_time + 1#计数器加一
+
+            #以下是发现出现静音并处理,如果没有静音，继续录，如果没出现声音，分两种情况，一直没有声音执行，和说完了
+            if(average < s_average * CALCULATE_TIMES or average < s_average + 50):#这是没有声音的情况,如果超过了1.5倍的静音音量和比平静音高50就算是则证明在说话
+                
+                if(wait_time >1):#如果有多个文件,那么证明是一句话，把他们叠加起来，然后进入后面的系统
+                    os.system("sudo arecord -D 'plughw:1,0' -r16000 -f S16_LE -d 1 now_last.wav")
+                    
+                    if(lastwav_exist_flag == True):
+
+                        os.system("sox last.wav %s now_last.wav conbine.wav"%(add_all_inwav(wait_time -1)))
+                    else:
+                        os.system("sox  %s now_last.wav conbine.wav"%(add_all_inwav(wait_time -1)))
+
+                    print("成功输出了一个")
+
+                    for i in range(0,wait_time -2):#这是清扫代码，目的在于清除产生的废品
+                        os.system("rm -f in%d.wav"%(i))
+                    last_flag = 0
+                    break#跳入到了语音识别播放代码
+            
+                else:#如果只是一次的话,输出一句您好象没有说话。
+
+                    print("您好像没说话")
+
+                    os.system("mv -f in%d.wav last.wav"%(wait_time-1))#将上一个保存到last。wav里面
+
+                    lastwav_exist_flag = True#判定不是第一句了
+
+                    wait_time = 0
+
+                    continue;
+
+            
+            else:#这是有声音的情况，继续滚动直到没有声音为止
+                continue
+
+
+
+        """
+        conbine.wav语音提取成功
+        以下是我们的识别模块和语音合成模块
+
+        """
+        
+
+        s = bdr.getText("conbine.wav") #s是我们得到的话
+
+
+        print("你：",s)
+
+        #这是我们识别模块，已经集成了退出功能
+        if(s.find('关闭') >= 0 or s.find('退出') >= 0):
+            exit_flag = 1
+            exit(-1)
+
+
 
         
-        
-    while(True):
-        if(record_key == True):
-	        print("下面开始录音")
-	        os.system("sudo arecord -D 'plughw:2,0' -r16000 -f S16_LE   in007.wav")
-	        print("录音完成")
-            
-            
 
+        #bdr.getVoice('好的知道了','ok.mp3')
 
-       
+        music_play('ok.mp3')
 
-        #记得重新加入缓存文件处理机制
+        if(wait_time == 100):
+            reset_file()
 
 
         """
